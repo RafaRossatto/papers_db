@@ -1,0 +1,14 @@
+services: # Aqui é onde ele vai dizer os conteiners que vao rodar
+  postgres: # É o nome do conteiner
+    image: postgres:latest # A imagem do doker hub que vamos usar, para estudo vamos usar a ultima versão.
+    container_name: my_db_papers
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: 123
+      POSTGRES_DB: my_db
+    ports:
+      - "5432:5432" # porta_externa:porta_interna
+    volumes:
+      - postgres_data:/var/lib/postgresql # Onde vai ficar armazanado          
+volumes:
+  postgres_data: # Volume que fica no projeto
