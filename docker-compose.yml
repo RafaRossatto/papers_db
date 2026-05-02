@@ -11,4 +11,4 @@ services: # Aqui é onde ele vai dizer os conteiners que vao rodar
     volumes:
       - postgres_data:/var/lib/postgresql # Onde vai ficar armazanado          
 volumes:
-  postgres_data: # Volume que fica no projeto
+  postgres_data: # Volume que fica no
