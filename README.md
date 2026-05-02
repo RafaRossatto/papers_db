@@ -36,3 +36,15 @@ Criar uma base de dados persistente para armazenar artigos, papers e documentos 
 ```bash
 git clone https://github.com/seu-usuario/papers_db.git
 cd papers_db
+```
+### Entrar no console PostgreSQL:
+- docker exec -it my_db_papers psql -U user -d my_db
+- OBS: O console pode ser usado jutmanete com o código em python. Para conferencia e algumas consultas ele é mais prático do que o script em python. 
+
+### Dentro do console do PostgreSQL:
+- \dt -- para ver todas as tabelas dentro do DB
+- \dt -- Lista todas as tabelas do banco atual
+- \d -- Lista tabelas, sequências, views, índices
+- \dt -- nome_tabela	Mostra detalhes de uma tabela específica
+- \d -- nome_tabela	Mostra estrutura detalhada da tabela (colunas, tipos)
+- DROP TABLE nome_da_tabela; --Isso elimina a tabela em questão.
