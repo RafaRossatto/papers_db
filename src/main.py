@@ -1,122 +1,61 @@
-"""
-Script para criar a tabela 'papers' no banco de dados PostgreSQL
-A tabela é projetada para armazenar artigos sumarizados em formato JSON
-"""
+from features.db import DatabaseManager
+import json
 
-import psycopg2
-from psycopg2 import sql
+def main():
 
-# Configuração de conexão com o banco
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 5432,
-    "database": "my_db",
-    "user": "user",
-    "password": "123"
-}
+    # 1. Criar instância (já conecta)
+    db = DatabaseManager(
+        host="localhost",
+        port=5432,
+        database="my_db",
+        user="user",
+        password="123"
+    )
 
-# SQL para criar a tabela papers
-CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS papers (
-    id SERIAL PRIMARY KEY,
-    titulo VARCHAR(500),
-    autor VARCHAR(200),
-    ano_publicacao INTEGER,
-    conteudo JSONB NOT NULL,
-    data_insercao TIMESTAMP DEFAULT NOW(),
-    data_atualizacao TIMESTAMP DEFAULT NOW()
-);
-
--- Criar índice para busca eficiente em JSONB
-CREATE INDEX IF NOT EXISTS idx_papers_conteudo ON papers USING GIN (conteudo);
-
--- Comentários para documentação
-COMMENT ON TABLE papers IS 'Armazena artigos sumarizados em formato JSON';
-COMMENT ON COLUMN papers.id IS 'Identificador único do artigo';
-COMMENT ON COLUMN papers.titulo IS 'Título do artigo (extraído do JSON)';
-COMMENT ON COLUMN papers.autor IS 'Autor principal do artigo';
-COMMENT ON COLUMN papers.ano_publicacao IS 'Ano de publicação do artigo';
-COMMENT ON COLUMN papers.conteudo IS 'JSON completo com todos os dados do artigo';
-COMMENT ON COLUMN papers.data_insercao IS 'Data de inserção no banco';
-COMMENT ON COLUMN papers.data_atualizacao IS 'Data da última atualização';
-"""
-
-def criar_tabela():
-    """Cria a tabela papers no banco de dados"""
     try:
-        # Conectar ao banco
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
+        # 2. Definir o nome da tabela
+        nome_tabela = "papers"
         
-        # Executar o SQL
-        cur.execute(CREATE_TABLE_SQL)
-        
-        # Confirmar a transação
-        conn.commit()
-        
-        print("✅ Tabela 'papers' criada com sucesso!")
-        print("   - Coluna 'id' (auto-incremento)")
-        print("   - Coluna 'titulo' (texto)")
-        print("   - Coluna 'autor' (texto)")
-        print("   - Coluna 'ano_publicacao' (inteiro)")
-        print("   - Coluna 'conteudo' (JSONB)")
-        print("   - Coluna 'data_insercao' (timestamp)")
-        print("   - Coluna 'data_atualizacao' (timestamp)")
-        print("\n✅ Índice GIN criado para buscas eficientes em JSONB")
-        
-        cur.close()
-        conn.close()
-        
-    except psycopg2.Error as e:
-        print(f"❌ Erro ao criar tabela: {e}")
-        return False
-    
-    return True
-
-def verificar_tabela():
-    """Verifica se a tabela foi criada corretamente"""
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
-        
-        # Verificar se a tabela existe
-        cur.execute("""
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'papers'
-            );
-        """)
-        
-        existe = cur.fetchone()[0]
-        
-        if existe:
-            print("\n✅ Tabela 'papers' existe no banco!")
-            
-            # Mostrar estrutura
-            cur.execute("""
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_name = 'papers'
-                ORDER BY ordinal_position;
-            """)
-            
-            print("\n📋 Estrutura da tabela:")
-            print("-" * 50)
-            for coluna, tipo, nulo in cur.fetchall():
-                print(f"   {coluna:20} | {tipo:20} | Null: {nulo}")
+        # 3. Verificar se a tabela existe, se não, criar
+        if not db.tabela_existe(nome_tabela):
+            print(f"📦 Tabela '{nome_tabela}' não existe. Criando...")
+            db.criar_tabela_json(nome_tabela)
         else:
-            print("\n❌ Tabela 'papers' não encontrada!")
+            print(f"✅ Tabela '{nome_tabela}' já existe. Usando ela.")
         
-        cur.close()
-        conn.close()
+        # 4. Carregar o JSON do arquivo
+        with open('/home/rafarossatto/personal_projects/pdf-summarizer-agent/src/outputs/aria2017.json', 'r', encoding='utf-8') as f:
+            artigo = json.load(f)
         
-    except psycopg2.Error as e:
-        print(f"❌ Erro ao verificar tabela: {e}")
+        # 5. Inserir usando o método inserir_artigo da classe
+        artigo_id = db.inserir_artigo(nome_tabela, artigo)
+        
+        if artigo_id:
+            print(f"\n📊 Resumo do artigo inserido:")
+            print(f"   ID: {artigo_id}")
+            print(f"   Título: {artigo.get('title')}")
+            print(f"   DOI: {artigo.get('doi')}")
+            print(f"   Journal: {artigo.get('journal')}")
+            
+            # Mostrar primeiros autores
+            autores = artigo.get('authors', [])
+            if autores:
+                primeiro_autor = autores[0].get('name') if isinstance(autores[0], dict) else autores[0]
+                print(f"   Primeiro autor: {primeiro_autor}")
+        
+        # 6. Opcional: Buscar para confirmar
+        print("\n🔍 Buscando artigos com DOI específico...")
+        resultados = db.buscar_json(nome_tabela, "doi", "10.1016/j.joi.2017.08.007")
+        
+        for item in resultados:
+            print(f"\n✅ Encontrado:")
+            print(f"   ID: {item['id']}")
+            print(f"   Título: {item['titulo']}")
+            print(f"   Autor: {item['autor']}")
+
+    finally:
+        # 7. Fechar conexão
+        db.fechar()
 
 if __name__ == "__main__":
-    print("🚀 Criando tabela 'papers' no banco de dados...\n")
-    
-    if criar_tabela():
-        verificar_tabela()
-    else:
-        print("\n❌ Falha ao criar a tabela.")
+    main()
