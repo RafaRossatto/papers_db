@@ -43,15 +43,15 @@ def main():
                 primeiro_autor = autores[0].get('name') if isinstance(autores[0], dict) else autores[0]
                 print(f"   Primeiro autor: {primeiro_autor}")
         
-        # 6. Opcional: Buscar para confirmar
-        print("\n🔍 Buscando artigos com DOI específico...")
-        resultados = db.buscar_json(nome_tabela, "doi", "10.1016/j.joi.2017.08.007")
+        # # 6. Opcional: Buscar para confirmar
+        # print("\n🔍 Buscando artigos com DOI específico...")
+        # resultados = db.buscar_json(nome_tabela, "doi", "10.1016/j.joi.2017.08.007")
         
-        for item in resultados:
-            print(f"\n✅ Encontrado:")
-            print(f"   ID: {item['id']}")
-            print(f"   Título: {item['titulo']}")
-            print(f"   Autor: {item['autor']}")
+        # for item in resultados:
+        #     print(f"\n✅ Encontrado:")
+        #     print(f"   ID: {item['id']}")
+        #     print(f"   Título: {item['titulo']}")
+        #     print(f"   Autor: {item['autor']}")
 
     finally:
         # 7. Fechar conexão

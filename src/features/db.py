@@ -116,19 +116,19 @@ class DatabaseManager:
             print(f"❌ Erro ao verificar tabela: {e}")
             return False
     
-    def listar_tabelas(self) -> List[str]:
-        """Retorna lista de todas as tabelas no banco"""
-        try:
-            self.cursor.execute("""
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public'
-                ORDER BY table_name
-            """)
-            return [row[0] for row in self.cursor.fetchall()]
-        except psycopg2.Error as e:
-            print(f"❌ Erro ao listar tabelas: {e}")
-            return []
+    # def listar_tabelas(self) -> List[str]:
+    #     """Retorna lista de todas as tabelas no banco"""
+    #     try:
+    #         self.cursor.execute("""
+    #             SELECT table_name 
+    #             FROM information_schema.tables 
+    #             WHERE table_schema = 'public'
+    #             ORDER BY table_name
+    #         """)
+    #         return [row[0] for row in self.cursor.fetchall()]
+    #     except psycopg2.Error as e:
+    #         print(f"❌ Erro ao listar tabelas: {e}")
+    #         return []
     
     # def inserir_json(self, nome_tabela: str, json_data: Dict[str, Any], 
     #                  titulo: str = None, autor: str = None, ano: int = None) -> Optional[int]:
