@@ -6,24 +6,24 @@ Usa psycopg2 para conexão e operações no banco
 import psycopg2
 from psycopg2 import sql
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 
 class DatabaseManager:
     """
-    Classe para gerenciar conexão e operações no PostgreSQL
-    Especializada em tabelas com coluna JSONB
+    Class to manage PostgreSQL connections and operations.
+    Specialized in tables with JSONB columns.
     """
     
     def __init__(self, host: str, port: int, database: str, user: str, password: str):
         """
-        Inicializa a conexão com o banco de dados
+        Initializes the database connection.
         
         Args:
-            host: Endereço do servidor (ex: localhost)
-            port: Porta do PostgreSQL (padrão: 5432)
-            database: Nome do banco de dados
-            user: Usuário do banco
-            password: Senha do banco
+            host: Server address (e.g., localhost)
+            port: PostgreSQL port (default: 5432)
+            database: Database name
+            user: Database user
+            password: Database password
         """
         self.config = {
             "host": host,
@@ -34,75 +34,103 @@ class DatabaseManager:
         }
         self.conn = None
         self.cursor = None
-        self._conectar()
-    
-    def _conectar(self):
-        """Estabelece conexão com o banco de dados"""
+        self._connect()
+
+    def _connect(self):
+        """
+        Establishes connection to the database.
+        
+        Raises:
+            psycopg2.Error: If connection fails
+        """
         try:
             self.conn = psycopg2.connect(**self.config)
             self.cursor = self.conn.cursor()
-            print("✅ Conectado ao banco de dados com sucesso!")
+            print("✅ Successfully connected to the database!")
         except psycopg2.Error as e:
-            print(f"❌ Erro ao conectar ao banco: {e}")
+            print(f"❌ Error connecting to the database: {e}")
             raise
-    
-    def fechar(self):
-        """Fecha a conexão com o banco"""
+
+    def close(self):
+        """
+        Closes the database connection.
+        """
         if self.cursor:
             self.cursor.close()
         if self.conn:
             self.conn.close()
-        print("🔌 Conexão fechada")
+        print("🔌 Connection closed")
     
-    def criar_tabela_json(self, nome_tabela: str, criar_indices: bool = True) -> bool:
+    def create_json_table(self, table_name: str, create_indexes: bool = True) -> bool:
         """
-        Cria uma tabela para armazenar dados JSON
+        Creates a table with columns for main metadata, summary, bibtex, and secondary metadata.
         
         Args:
-            nome_tabela: Nome da tabela a ser criada
-            criar_indices: Se deve criar índice GIN para buscas JSON
+            table_name: Name of the table to be created
+            create_indexes: Whether to create GIN indexes for JSON searches
         
         Returns:
-            True se criou/verificou com sucesso, False caso contrário
+            True if created/verified successfully, False otherwise
         """
         try:
-            # SQL para criar tabela
             create_sql = sql.SQL("""
                 CREATE TABLE IF NOT EXISTS {} (
                     id SERIAL PRIMARY KEY,
-                    titulo VARCHAR(500),
-                    autor VARCHAR(200),
-                    ano_publicacao INTEGER,
-                    conteudo JSONB NOT NULL,
-                    data_insercao TIMESTAMP DEFAULT NOW(),
-                    data_atualizacao TIMESTAMP DEFAULT NOW()
+                    title VARCHAR(500),
+                    author VARCHAR(200),
+                    publication_year INTEGER,
+                    doi VARCHAR(100),
+                    summary JSONB,
+                    bibtex_citation TEXT,
+                    metadata JSONB NOT NULL,
+                    insertion_date TIMESTAMP DEFAULT NOW(),
+                    update_date TIMESTAMP DEFAULT NOW()
                 )
-            """).format(sql.Identifier(nome_tabela))
+            """).format(sql.Identifier(table_name))
             
             self.cursor.execute(create_sql)
             
-            # Criar índice GIN para buscas JSON (se solicitado)
-            if criar_indices:
-                index_sql = sql.SQL("""
-                    CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (conteudo)
-                """).format(
-                    sql.Identifier(f"idx_{nome_tabela}_conteudo"),
-                    sql.Identifier(nome_tabela)
-                )
-                self.cursor.execute(index_sql)
-                print(f"   ✅ Índice criado para {nome_tabela}")
+            if create_indexes:
+                # Indexes for fast searches
+                self.cursor.execute(sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {} (doi)"
+                ).format(sql.Identifier(f"idx_{table_name}_doi"), sql.Identifier(table_name)))
+                
+                self.cursor.execute(sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (summary)"
+                ).format(sql.Identifier(f"idx_{table_name}_summary"), sql.Identifier(table_name)))
+                
+                self.cursor.execute(sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (metadata)"
+                ).format(sql.Identifier(f"idx_{table_name}_metadata"), sql.Identifier(table_name)))
+                
+                # Index for bibtex searches (if needed)
+                self.cursor.execute(sql.SQL(
+                    "CREATE INDEX IF NOT EXISTS {} ON {} (bibtex_citation)"
+                ).format(sql.Identifier(f"idx_{table_name}_bibtex"), sql.Identifier(table_name)))
+                
+                print(f"   ✅ Indexes created")
             
             self.conn.commit()
-            print(f"✅ Tabela '{nome_tabela}' criada/verificada com sucesso!")
+            print(f"✅ Table '{table_name}' created")
+            print(f"   Columns: id, title, author, year, doi, summary, bibtex_citation, metadata")
             return True
             
         except psycopg2.Error as e:
-            print(f"❌ Erro ao criar tabela {nome_tabela}: {e}")
+            print(f"❌ Error: {e}")
             self.conn.rollback()
             return False
     
-    def tabela_existe(self, nome_tabela: str) -> bool:
-        """Verifica se uma tabela existe no banco"""
+    def table_exists(self, table_name: str) -> bool:
+        """
+        Checks if a table exists in the database.
+        
+        Args:
+            table_name: Name of the table to check
+        
+        Returns:
+            True if the table exists, False otherwise
+        """
         try:
             self.cursor.execute("""
                 SELECT EXISTS (
@@ -110,175 +138,248 @@ class DatabaseManager:
                     WHERE table_schema = 'public' 
                     AND table_name = %s
                 )
-            """, (nome_tabela,))
+            """, (table_name,))
             return self.cursor.fetchone()[0]
         except psycopg2.Error as e:
-            print(f"❌ Erro ao verificar tabela: {e}")
+            print(f"❌ Error checking table existence: {e}")
             return False
-    
-    # def listar_tabelas(self) -> List[str]:
-    #     """Retorna lista de todas as tabelas no banco"""
-    #     try:
-    #         self.cursor.execute("""
-    #             SELECT table_name 
-    #             FROM information_schema.tables 
-    #             WHERE table_schema = 'public'
-    #             ORDER BY table_name
-    #         """)
-    #         return [row[0] for row in self.cursor.fetchall()]
-    #     except psycopg2.Error as e:
-    #         print(f"❌ Erro ao listar tabelas: {e}")
-    #         return []
-    
-    # def inserir_json(self, nome_tabela: str, json_data: Dict[str, Any], 
-    #                  titulo: str = None, autor: str = None, ano: int = None) -> Optional[int]:
-    #     """
-    #     Insere um documento JSON na tabela
         
-    #     Args:
-    #         nome_tabela: Tabela onde inserir
-    #         json_data: Dicionário com os dados JSON
-    #         titulo: Título do artigo (opcional, pode estar no JSON)
-    #         autor: Autor do artigo (opcional)
-    #         ano: Ano de publicação (opcional)
-        
-    #     Returns:
-    #         ID do registro inserido ou None se erro
-    #     """
-    #     try:
-    #         # Se não passou explicitamente, tenta extrair do JSON
-    #         titulo_final = titulo or json_data.get('titulo')
-    #         autor_final = autor or json_data.get('autor')
-    #         ano_final = ano or json_data.get('ano')
-            
-    #         insert_sql = sql.SQL("""
-    #             INSERT INTO {} (titulo, autor, ano_publicacao, conteudo)
-    #             VALUES (%s, %s, %s, %s)
-    #             RETURNING id
-    #         """).format(sql.Identifier(nome_tabela))
-            
-    #         self.cursor.execute(insert_sql, (titulo_final, autor_final, ano_final, json.dumps(json_data)))
-    #         self.conn.commit()
-            
-    #         inserted_id = self.cursor.fetchone()[0]
-    #         print(f"✅ JSON inserido na tabela '{nome_tabela}' com ID: {inserted_id}")
-    #         return inserted_id
-            
-    #     except psycopg2.Error as e:
-    #         print(f"❌ Erro ao inserir JSON: {e}")
-    #         self.conn.rollback()
-    #         return None
-    
-    def buscar_json(self, nome_tabela: str, campo: str, valor: str) -> List[Dict]:
+    def list_tables(self) -> List[str]:
         """
-        Busca documentos onde um campo do JSON tem um valor específico
-        
-        Args:
-            nome_tabela: Tabela onde buscar
-            campo: Nome do campo dentro do JSON
-            valor: Valor a ser procurado
+        Returns a list of all tables in the database.
         
         Returns:
-            Lista de dicionários com os resultados
+            List of table names. Returns empty list if an error occurs.
+        """
+        try:
+            self.cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public'
+                ORDER BY table_name
+            """)
+            return [row[0] for row in self.cursor.fetchall()]
+        except psycopg2.Error as e:
+            print(f"❌ Error listing tables: {e}")
+            return []
+    
+    def search_json(self, table_name: str, field: str, value: str) -> List[Dict]:
+        """
+        Searches for documents where a JSON field has a specific value.
+        
+        Args:
+            table_name: Table where to search
+            field: Field name inside the JSON
+            value: Value to search for
+        
+        Returns:
+            List of dictionaries with the results. Returns empty list if an error occurs.
         """
         try:
             query = sql.SQL("""
-                SELECT id, titulo, autor, ano_publicacao, conteudo, data_insercao
+                SELECT id, title, author, publication_year, doi, summary, metadata, insertion_date
                 FROM {}
-                WHERE conteudo->>%s = %s
-                ORDER BY data_insercao DESC
-            """).format(sql.Identifier(nome_tabela))
+                WHERE metadata->>%s = %s
+                ORDER BY insertion_date DESC
+            """).format(sql.Identifier(table_name))
             
-            self.cursor.execute(query, (campo, valor))
-            resultados = self.cursor.fetchall()
+            self.cursor.execute(query, (field, value))
+            results = self.cursor.fetchall()
             
             return [
                 {
                     "id": row[0],
-                    "titulo": row[1],
-                    "autor": row[2],
-                    "ano": row[3],
-                    "conteudo": row[4],
-                    "data_insercao": row[5]
+                    "title": row[1],
+                    "author": row[2],
+                    "year": row[3],
+                    "doi": row[4],
+                    "summary": row[5],
+                    "metadata": row[6],
+                    "insertion_date": row[7]
                 }
-                for row in resultados
+                for row in results
             ]
         except psycopg2.Error as e:
-            print(f"❌ Erro na busca: {e}")
+            print(f"❌ Error during search: {e}")
             return []
     
-    # def deletar_todos(self, nome_tabela: str) -> bool:
-    #     """Remove todos os registros de uma tabela (mantém a estrutura)"""
-    #     try:
-    #         resposta = input(f"⚠️ Tem certeza que quer deletar TODOS os dados da tabela '{nome_tabela}'? (s/N): ")
-    #         if resposta.lower() == 's':
-    #             self.cursor.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(nome_tabela)))
-    #             self.conn.commit()
-    #             print(f"✅ Todos os dados deletados da tabela '{nome_tabela}'")
-    #             return True
-    #         else:
-    #             print("❌ Operação cancelada")
-    #             return False
-    #     except psycopg2.Error as e:
-    #         print(f"❌ Erro ao deletar dados: {e}")
-    #         self.conn.rollback()
-    #         return False
-    
-    # def deletar_tabela(self, nome_tabela: str) -> bool:
-    #     """Remove a tabela inteira"""
-    #     try:
-    #         resposta = input(f"⚠️ Tem certeza que quer deletar a TABELA '{nome_tabela}'? (s/N): ")
-    #         if resposta.lower() == 's':
-    #             self.cursor.execute(sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(sql.Identifier(nome_tabela)))
-    #             self.conn.commit()
-    #             print(f"✅ Tabela '{nome_tabela}' deletada com sucesso!")
-    #             return True
-    #         else:
-    #             print("❌ Operação cancelada")
-    #             return False
-    #     except psycopg2.Error as e:
-    #         print(f"❌ Erro ao deletar tabela: {e}")
-    #         self.conn.rollback()
-    #         return False
-    
-    def inserir_artigo(self, nome_tabela: str, artigo_json: Dict) -> Optional[int]:
-        """Insere um artigo, evitando duplicatas por DOI"""
+    def search_by_doi(self, table_name: str, doi: str) -> Optional[Dict]:
+        """
+        Searches for an article by its DOI.
+        
+        Args:
+            table_name: Table where to search
+            doi: DOI of the article
+        
+        Returns:
+            Dictionary with the article data if found, None otherwise
+        """
         try:
-            titulo = artigo_json.get('title')
-            ano = artigo_json.get('publication_date')
-            doi = artigo_json.get('doi')
+            query = sql.SQL("""
+                SELECT id, title, author, publication_year, doi, summary, bibtex_citation, metadata, insertion_date
+                FROM {}
+                WHERE doi = %s
+            """).format(sql.Identifier(table_name))
             
-            # Verificar se já existe pelo DOI
+            self.cursor.execute(query, (doi,))
+            row = self.cursor.fetchone()
+            
+            if row:
+                return {
+                    "id": row[0],
+                    "title": row[1],
+                    "author": row[2],
+                    "year": row[3],
+                    "doi": row[4],
+                    "summary": row[5],
+                    "bibtex_citation": row[6],
+                    "metadata": row[7],
+                    "insertion_date": row[8]
+                }
+            return None
+            
+        except psycopg2.Error as e:
+            print(f"❌ Error during search: {e}")
+            return None
+
+    def insert_article(self, table_name: str, article_json: Dict) -> Optional[int]:
+        """
+        Inserts an article by separating:
+        - Main columns: title, author, year, doi
+        - Summary column: complete summary object
+        - BibTeX column: BibTeX citation
+        - Metadata column: ONLY secondary metadata (journal, keywords, etc.)
+        
+        Args:
+            table_name: Table where to insert
+            article_json: Dictionary with the article JSON data
+        
+        Returns:
+            ID of the inserted or existing article, None if error
+        """
+        try:
+            # 1. Extract main metadata (goes to columns)
+            title = article_json.get('title')
+            year = article_json.get('publication_date')
+            doi = article_json.get('doi')
+            
+            # 2. Extract summary (goes to summary column)
+            summary = article_json.get('summary')
+            
+            # 3. Extract bibtex_citation (goes to bibtex_citation column)
+            bibtex_citation = article_json.get('bibtex_citation')
+            
+            # 4. Extract authors for author column
+            authors_list = article_json.get('authors', [])
+            if authors_list and isinstance(authors_list[0], dict):
+                author = ", ".join([a.get('name', '') for a in authors_list])
+            else:
+                author = ", ".join(authors_list) if authors_list else None
+            
+            # 5. Create 'metadata' object with the REMAINING data
+            metadata_json = {}
+            
+            # Fields that go to metadata (everything not extracted)
+            metadata_fields = [
+                'journal', 'volume', 'issue', 'pages', 'publisher',
+                'language', 'issn', 'isbn', 'url', 'pdf_url',
+                'keywords', 'palavras_chave', 'tags',
+                'references', 'citations',
+                '_metadata', 'source_file', 'model', 'timestamp'
+            ]
+            
+            for field in metadata_fields:
+                if field in article_json:
+                    metadata_json[field] = article_json[field]
+            
+            # Include any other fields not extracted
+            extracted_fields = {'title', 'publication_date', 'doi', 'authors', 'summary', 'bibtex_citation'}
+            for field, value in article_json.items():
+                if field not in extracted_fields and field not in metadata_json:
+                    metadata_json[field] = value
+            
+            # 6. Check for duplicates by DOI
             if doi:
-                self.cursor.execute(f"""
-                    SELECT id FROM {nome_tabela} 
-                    WHERE conteudo->>'doi' = %s
-                """, (doi,))
-                
+                self.cursor.execute(f"SELECT id FROM {table_name} WHERE doi = %s", (doi,))
                 existing = self.cursor.fetchone()
                 if existing:
-                    print(f"⚠️ Artigo já existe (ID: {existing[0]}). Pulando inserção.")
+                    print(f"⚠️ Article already exists (ID: {existing[0]}). Skipping insertion.")
                     return existing[0]
             
-            # Extrair autores
-            autores_lista = artigo_json.get('authors', [])
-            if autores_lista and isinstance(autores_lista[0], dict):
-                autores = ", ".join([a.get('name', '') for a in autores_lista])
-            else:
-                autores = ", ".join(autores_lista) if autores_lista else None
-            
-            # Inserir
+            # 7. Insert
             self.cursor.execute(f"""
-                INSERT INTO {nome_tabela} (titulo, autor, ano_publicacao, conteudo)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO {table_name} 
+                (title, author, publication_year, doi, summary, bibtex_citation, metadata)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (titulo, autores, ano, json.dumps(artigo_json)))
+            """, (
+                title, 
+                author, 
+                year, 
+                doi, 
+                json.dumps(summary) if summary else None,
+                bibtex_citation,
+                json.dumps(metadata_json)
+            ))
             
             self.conn.commit()
             inserted_id = self.cursor.fetchone()[0]
-            print(f"✅ Artigo inserido (ID: {inserted_id})")
+            
+            print(f"✅ Article inserted (ID: {inserted_id})")
+            print(f"   📌 Title: {title}")
+            print(f"   📌 DOI: {doi}")
+            print(f"   📋 Summary: {'Yes' if summary else 'No'}")
+            print(f"   📖 BibTeX: {'Yes' if bibtex_citation else 'No'}")
+            print(f"   📦 Metadata: {len(metadata_json)} fields")
             return inserted_id
             
         except psycopg2.Error as e:
-            print(f"❌ Erro: {e}")
+            print(f"❌ Error inserting article: {e}")
+            self.conn.rollback()
             return None
+            
+        except psycopg2.Error as e:
+            print(f"❌ Erro: {e}")
+            self.conn.rollback()
+            return None
+    
+    # def atualizar_tabela(self, nome_tabela: str) -> bool:
+    #     """
+    #     Atualiza uma tabela existente adicionando as colunas DOI e Summary
+    #     Útil para migrar tabelas antigas
+    #     """
+    #     try:
+    #         # Verificar se a coluna doi existe
+    #         self.cursor.execute("""
+    #             SELECT column_name 
+    #             FROM information_schema.columns 
+    #             WHERE table_name = %s AND column_name = 'doi'
+    #         """, (nome_tabela,))
+            
+    #         if not self.cursor.fetchone():
+    #             self.cursor.execute(f"""
+    #                 ALTER TABLE {nome_tabela} 
+    #                 ADD COLUMN doi VARCHAR(100),
+    #                 ADD COLUMN summary JSONB
+    #             """)
+    #             self.conn.commit()
+    #             print(f"✅ Colunas 'doi' e 'summary' adicionadas à tabela '{nome_tabela}'")
+                
+    #             # Opcional: popular as novas colunas com dados do JSON existente
+    #             self.cursor.execute(f"""
+    #                 UPDATE {nome_tabela} 
+    #                 SET doi = conteudo->>'doi',
+    #                     summary = conteudo->'summary'
+    #                 WHERE doi IS NULL
+    #             """)
+    #             self.conn.commit()
+    #             print(f"   ✅ Dados migrados para as novas colunas")
+    #             return True
+    #         else:
+    #             print(f"⚠️ Tabela '{nome_tabela}' já possui as colunas DOI e Summary")
+    #             return True
+                
+    #     except psycopg2.Error as e:
+    #         print(f"❌ Erro ao atualizar tabela: {e}")
+    #         self.conn.rollback()
+    #         return False
