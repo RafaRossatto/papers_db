@@ -77,12 +77,22 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS {} (
                     id SERIAL PRIMARY KEY,
                     title VARCHAR(500),
-                    author VARCHAR(200),
+                    author VARCHAR(500),     
+                    authors JSONB,                              
                     publication_year INTEGER,
                     doi VARCHAR(100),
-                    summary JSONB,
+                    summary_objective TEXT,
+                    summary_methods TEXT,
+                    summary_results TEXT,
+                    summary_conclusion TEXT,
+                    IA_Model TEXT,
+                    IA_temperature FLOAT,  
+                    IA_max_tokens TEXT,               
                     bibtex_citation TEXT,
-                    metadata JSONB NOT NULL,
+                    text_length INTEGER,
+                    source_file_path TEXT,
+                    source_file_name TEXT,
+                    source_file_directory TEXT,
                     insertion_date TIMESTAMP DEFAULT NOW(),
                     update_date TIMESTAMP DEFAULT NOW()
                 )
@@ -96,13 +106,16 @@ class DatabaseManager:
                     "CREATE INDEX IF NOT EXISTS {} ON {} (doi)"
                 ).format(sql.Identifier(f"idx_{table_name}_doi"), sql.Identifier(table_name)))
                 
-                self.cursor.execute(sql.SQL(
-                    "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (summary)"
-                ).format(sql.Identifier(f"idx_{table_name}_summary"), sql.Identifier(table_name)))
+                # self.cursor.execute(sql.SQL(
+                #     "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (summary)"
+                # ).format(sql.Identifier(f"idx_{table_name}_summary"), sql.Identifier(table_name)))
                 
+                # self.cursor.execute(sql.SQL(
+                #     "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (metadata)"
+                # ).format(sql.Identifier(f"idx_{table_name}_metadata"), sql.Identifier(table_name)))
                 self.cursor.execute(sql.SQL(
-                    "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (metadata)"
-                ).format(sql.Identifier(f"idx_{table_name}_metadata"), sql.Identifier(table_name)))
+                "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (authors)"
+                ).format(sql.Identifier(f"idx_{table_name}_authors"), sql.Identifier(table_name)))
                 
                 # Index for bibtex searches (if needed)
                 self.cursor.execute(sql.SQL(
@@ -120,6 +133,69 @@ class DatabaseManager:
             print(f"❌ Error: {e}")
             self.conn.rollback()
             return False
+
+
+
+
+
+    # def create_json_table(self, table_name: str, create_indexes: bool = True) -> bool:
+    #     """
+    #     Creates a table with columns for main metadata, summary, bibtex, and secondary metadata.
+        
+    #     Args:
+    #         table_name: Name of the table to be created
+    #         create_indexes: Whether to create GIN indexes for JSON searches
+        
+    #     Returns:
+    #         True if created/verified successfully, False otherwise
+    #     """
+    #     try:
+    #         create_sql = sql.SQL("""
+    #             CREATE TABLE IF NOT EXISTS {} (
+    #                 id SERIAL PRIMARY KEY,
+    #                 title VARCHAR(500),
+    #                 author VARCHAR(200),
+    #                 publication_year INTEGER,
+    #                 doi VARCHAR(100),
+    #                 summary JSONB,
+    #                 bibtex_citation TEXT,
+    #                 metadata JSONB NOT NULL,
+    #                 insertion_date TIMESTAMP DEFAULT NOW(),
+    #                 update_date TIMESTAMP DEFAULT NOW()
+    #             )
+    #         """).format(sql.Identifier(table_name))
+            
+    #         self.cursor.execute(create_sql)
+            
+    #         if create_indexes:
+    #             # Indexes for fast searches
+    #             self.cursor.execute(sql.SQL(
+    #                 "CREATE INDEX IF NOT EXISTS {} ON {} (doi)"
+    #             ).format(sql.Identifier(f"idx_{table_name}_doi"), sql.Identifier(table_name)))
+                
+    #             self.cursor.execute(sql.SQL(
+    #                 "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (summary)"
+    #             ).format(sql.Identifier(f"idx_{table_name}_summary"), sql.Identifier(table_name)))
+                
+    #             self.cursor.execute(sql.SQL(
+    #                 "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (metadata)"
+    #             ).format(sql.Identifier(f"idx_{table_name}_metadata"), sql.Identifier(table_name)))
+                
+    #             # Index for bibtex searches (if needed)
+    #             self.cursor.execute(sql.SQL(
+    #                 "CREATE INDEX IF NOT EXISTS {} ON {} (bibtex_citation)"
+    #             ).format(sql.Identifier(f"idx_{table_name}_bibtex"), sql.Identifier(table_name)))
+                
+    #             print(f"   ✅ Indexes created")
+            
+    #         self.conn.commit()
+    #         print(f"✅ Table '{table_name}' created")
+    #         print(f"   Columns: id, title, author, year, doi, summary, bibtex_citation, metadata")
+    #         return True
+    #     except psycopg2.Error as e:
+    #         print(f"❌ Error: {e}")
+    #         self.conn.rollback()
+    #         return False
     
     def table_exists(self, table_name: str) -> bool:
         """
@@ -244,11 +320,14 @@ class DatabaseManager:
 
     def insert_article(self, table_name: str, article_json: Dict) -> Optional[int]:
         """
-        Inserts an article by separating:
-        - Main columns: title, author, year, doi
-        - Summary column: complete summary object
-        - BibTeX column: BibTeX citation
-        - Metadata column: ONLY secondary metadata (journal, keywords, etc.)
+        Inserts an article into the new table structure with separated summary fields.
+        
+        New table columns:
+        - Main columns: title, author, publication_year, doi
+        - Summary sections: summary_objective, summary_methods, summary_results, summary_conclusion
+        - IA parameters: IA_Model, IA_temperature, IA_max_tokens
+        - Source info: source_file_path, source_file_name, source_file_directory
+        - Other: bibtex_citation, text_length
         
         Args:
             table_name: Table where to insert
@@ -264,8 +343,25 @@ class DatabaseManager:
             doi = article_json.get('doi')
             
             # 2. Extract summary (goes to summary column)
-            summary = article_json.get('summary')
-            
+            # summary = article_json.get('summary')
+            summary_obj = article_json.get('summary', {})
+            summary_objective = summary_obj.get('objective') or article_json.get('summary_objective')
+            summary_methods = summary_obj.get('methods') or article_json.get('summary_methods')
+            summary_results = summary_obj.get('results') or article_json.get('summary_results')
+            summary_conclusion = summary_obj.get('conclusion') or article_json.get('summary_conclusion')
+
+            _metadata = article_json.get('_metadata',{})
+            ia_model = _metadata.get('model')
+            ia_temperature = _metadata.get('temperature')
+            ia_max_tokens = str(_metadata.get('max_tokens')) if _metadata.get('max_tokens') else None
+
+            source_info = _metadata.get('source_file',{})
+            source_file_path = source_info.get('path')
+            source_file_name =  source_info.get('name')
+            source_file_directory = source_info.get('directory')
+
+            text_length = _metadata.get('text_length')
+
             # 3. Extract bibtex_citation (goes to bibtex_citation column)
             bibtex_citation = article_json.get('bibtex_citation')
             
@@ -273,53 +369,49 @@ class DatabaseManager:
             authors_list = article_json.get('authors', [])
             if authors_list and isinstance(authors_list[0], dict):
                 author = ", ".join([a.get('name', '') for a in authors_list])
+                authors_json = json.dumps(authors_list)
             else:
                 author = ", ".join(authors_list) if authors_list else None
-            
-            # 5. Create 'metadata' object with the REMAINING data
-            metadata_json = {}
-            
-            # Fields that go to metadata (everything not extracted)
-            metadata_fields = [
-                'journal', 'volume', 'issue', 'pages', 'publisher',
-                'language', 'issn', 'isbn', 'url', 'pdf_url',
-                'keywords', 'palavras_chave', 'tags',
-                'references', 'citations',
-                '_metadata', 'source_file', 'model', 'timestamp'
-            ]
-            
-            for field in metadata_fields:
-                if field in article_json:
-                    metadata_json[field] = article_json[field]
-            
-            # Include any other fields not extracted
-            extracted_fields = {'title', 'publication_date', 'doi', 'authors', 'summary', 'bibtex_citation'}
-            for field, value in article_json.items():
-                if field not in extracted_fields and field not in metadata_json:
-                    metadata_json[field] = value
+                authors_json = json.dumps([{"name": name} for name in authors_list]) if authors_list else None   
             
             # 6. Check for duplicates by DOI
             if doi:
-                self.cursor.execute(f"SELECT id FROM {table_name} WHERE doi = %s", (doi,))
+                select_sql = sql.SQL("SELECT id FROM {} WHERE doi = %s").format(sql.Identifier(table_name))
+                self.cursor.execute(select_sql, (doi,))
                 existing = self.cursor.fetchone()
                 if existing:
                     print(f"⚠️ Article already exists (ID: {existing[0]}). Skipping insertion.")
                     return existing[0]
             
-            # 7. Insert
-            self.cursor.execute(f"""
-                INSERT INTO {table_name} 
-                (title, author, publication_year, doi, summary, bibtex_citation, metadata)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            insert_sql = sql.SQL("""
+                INSERT INTO {} 
+                (title, author,authors, publication_year, doi, 
+                summary_objective, summary_methods, summary_results, summary_conclusion,
+                ia_model, ia_temperature, ia_max_tokens,
+                bibtex_citation, text_length,
+                source_file_path, source_file_name, source_file_directory)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (
+            """).format(sql.Identifier(table_name))
+
+            self.cursor.execute(insert_sql, (
                 title, 
-                author, 
+                author,
+                authors_json,  
                 year, 
-                doi, 
-                json.dumps(summary) if summary else None,
+                doi,
+                summary_objective,
+                summary_methods,
+                summary_results,
+                summary_conclusion,
+                ia_model,
+                ia_temperature,
+                ia_max_tokens,
                 bibtex_citation,
-                json.dumps(metadata_json)
+                text_length,
+                source_file_path,
+                source_file_name,
+                source_file_directory
             ))
             
             self.conn.commit()
@@ -328,18 +420,15 @@ class DatabaseManager:
             print(f"✅ Article inserted (ID: {inserted_id})")
             print(f"   📌 Title: {title}")
             print(f"   📌 DOI: {doi}")
-            print(f"   📋 Summary: {'Yes' if summary else 'No'}")
+            print(f"   📋 Summary sections: Objective={bool(summary_objective)}, Methods={bool(summary_methods)}, Results={bool(summary_results)}, Conclusion={bool(summary_conclusion)}")
+            print(f"   🤖 IA Model: {ia_model}")
             print(f"   📖 BibTeX: {'Yes' if bibtex_citation else 'No'}")
-            print(f"   📦 Metadata: {len(metadata_json)} fields")
+            print(f"   📄 Source: {source_file_name}")
+            print(f"   📊 Text length: {text_length} chars")
             return inserted_id
             
         except psycopg2.Error as e:
             print(f"❌ Error inserting article: {e}")
-            self.conn.rollback()
-            return None
-            
-        except psycopg2.Error as e:
-            print(f"❌ Erro: {e}")
             self.conn.rollback()
             return None
     
