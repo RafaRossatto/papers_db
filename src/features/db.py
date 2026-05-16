@@ -339,8 +339,18 @@ class DatabaseManager:
         try:
             # 1. Extract main metadata (goes to columns)
             title = article_json.get('title')
-            year = article_json.get('publication_date')
+            #year = article_json.get('publication_date')
             doi = article_json.get('doi')
+
+            pub_year = article_json.get('publication_year')
+            if isinstance(pub_year, str):
+                # Se for string tipo "2021-07-02", pega só o ano
+                if '-' in pub_year:
+                    year = int(pub_year.split('-')[0])
+                else:
+                    year = int(pub_year) if pub_year.isdigit() else None
+            else:
+                year = pub_year
             
             # 2. Extract summary (goes to summary column)
             # summary = article_json.get('summary')
