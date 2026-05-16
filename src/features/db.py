@@ -77,8 +77,8 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS {} (
                     id SERIAL PRIMARY KEY,
                     title VARCHAR(500),
-                    author VARCHAR(500),     
-                    authors JSONB,                              
+                    authors VARCHAR(500),     
+                    authors_information JSONB,                              
                     publication_year INTEGER,
                     doi VARCHAR(100),
                     summary_objective TEXT,
@@ -114,7 +114,7 @@ class DatabaseManager:
                 #     "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (metadata)"
                 # ).format(sql.Identifier(f"idx_{table_name}_metadata"), sql.Identifier(table_name)))
                 self.cursor.execute(sql.SQL(
-                "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (authors)"
+                "CREATE INDEX IF NOT EXISTS {} ON {} USING GIN (authors_information)"
                 ).format(sql.Identifier(f"idx_{table_name}_authors"), sql.Identifier(table_name)))
                 
                 # Index for bibtex searches (if needed)
@@ -385,7 +385,7 @@ class DatabaseManager:
             
             insert_sql = sql.SQL("""
                 INSERT INTO {} 
-                (title, author,authors, publication_year, doi, 
+                (title, authors,authors_information, publication_year, doi, 
                 summary_objective, summary_methods, summary_results, summary_conclusion,
                 ia_model, ia_temperature, ia_max_tokens,
                 bibtex_citation, text_length,
