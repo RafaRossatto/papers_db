@@ -1,11 +1,14 @@
 from features.db import DatabaseManager
 import json
+from pathlib import Path
+import argparse
 
 def main():
-    """
-    Main function to insert an article JSON into the database.
-    """
-    # 1. Create instance (already connects)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dir', '-d', required=True, help='Directory with JSON files')
+    parser.add_argument('--table', '-t', default='papers', help='Table name')
+    args = parser.parse_args()
+    
     db = DatabaseManager(
         host="localhost",
         port=5432,
@@ -13,50 +16,25 @@ def main():
         user="user",
         password="123"
     )
-
+    
     try:
-        # 2. Define the table name
-        table_name = "papers"
+        if not db.table_exists(args.table):
+            db.create_json_table(args.table)
         
-        # 3. Check if the table exists, if not, create it
-        if not db.table_exists(table_name):
-            print(f"📦 Table '{table_name}' does not exist. Creating...")
-            db.create_json_table(table_name)
-        else:
-            print(f"✅ Table '{table_name}' already exists. Using it.")
+        # Pega todos os arquivos .json da pasta
+        pasta = Path(args.dir)
+        arquivos = list(pasta.glob("*.json"))
         
-        # 4. Load JSON from file
-        with open('/home/rafarossatto/personal_projects/pdf-summarizer-agent/src/outputs/aria2017.json', 'r', encoding='utf-8') as f:
-            article = json.load(f)
+        print(f"📁 Encontrados {len(arquivos)} arquivos JSON")
         
-        # 5. Insert using the class method insert_article
-        article_id = db.insert_article(table_name, article)
-        
-        if article_id:
-            print(f"\n📊 Summary of inserted article:")
-            print(f"   ID: {article_id}")
-            print(f"   Title: {article.get('title')}")
-            print(f"   DOI: {article.get('doi')}")
-            print(f"   Journal: {article.get('journal')}")
+        for arquivo in arquivos:
+            with open(arquivo, 'r', encoding='utf-8') as f:
+                article = json.load(f)
             
-            # Show first author
-            authors = article.get('authors', [])
-            if authors:
-                first_author = authors[0].get('name') if isinstance(authors[0], dict) else authors[0]
-                print(f"   First author: {first_author}")
+            db.insert_article(args.table, article)
+            print(f"✅ Inserido: {arquivo.name}")
         
-        # # 6. Optional: Search to confirm
-        # print("\n🔍 Searching for articles with specific DOI...")
-        # results = db.search_json(table_name, "doi", "10.1016/j.joi.2017.08.007")
-        
-        # for item in results:
-        #     print(f"\n✅ Found:")
-        #     print(f"   ID: {item['id']}")
-        #     print(f"   Title: {item['title']}")
-        #     print(f"   Author: {item['author']}")
-
     finally:
-        # 7. Close connection
         db.close()
 
 if __name__ == "__main__":
